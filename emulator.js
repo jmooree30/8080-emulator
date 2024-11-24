@@ -14,7 +14,7 @@ class Emulator {
       H: 0,
       L: 0,
       // 16-bit registers
-      SP: 0x3fff,
+      SP: 0,
       PC: 0,
       Flags: {
         Carry: this._flagManager.IsSet(this._flagManager.FlagType.Carry),
@@ -151,41 +151,52 @@ class Emulator {
     return result;
   };
 
-  drawToCanvas(memory) {
-    // 0x2400 - 0x3fff is the video memory range
-    const VIDEO_MEMORY_START = 0x2400;
-    const VIDEO_MEMORY_END = 0x3fff;
-    const SCREEN_WIDTH = 224;
-    const SCREEN_HEIGHT = 256;
-
+  drawSpaceInvadersScreen(memory) {
+    // Set up Canvas
     const canvas = document.getElementById("screen");
-    const ctx = canvas.getContext("2d");
-    const imageData = ctx.createImageData(SCREEN_WIDTH, SCREEN_HEIGHT);
+    const context = canvas.getContext("2d");
 
-    let pixelIndex = 0;
-    for (let y = 0; y < SCREEN_HEIGHT; y++) {
-      for (let xByte = 0; xByte < SCREEN_WIDTH / 8; xByte++) {
-        const byte =
-          memory[VIDEO_MEMORY_START + y * (SCREEN_WIDTH / 8) + xByte] || 0;
+    const originalWidth = 256; // Original screen width
+    const originalHeight = 224; // Original screen height
+
+    canvas.width = originalHeight; // Rotated screen width
+    canvas.height = originalWidth; // Rotated screen height
+
+    // Apply transformation for counter-clockwise rotation
+    context.translate(0, originalWidth); // Move origin to bottom-left
+    context.rotate(-Math.PI / 2); // Rotate 90 degrees counter-clockwise
+
+    context.fillStyle = "black"; // Background
+    context.fillRect(0, 0, originalWidth, originalHeight);
+    context.fillStyle = "white"; // Foreground (pixels)
+
+    const screenBase = 0x2400; // Start of screen RAM in memory
+    const bytesPerLine = originalWidth / 8; // 1 byte = 8 pixels
+
+    for (let y = 0; y < originalHeight; y++) {
+      for (let xByte = 0; xByte < bytesPerLine; xByte++) {
+        const byteIndex = screenBase + y * bytesPerLine + xByte;
+        const byte = memory[byteIndex]; // Simulated memory buffer
 
         for (let bit = 0; bit < 8; bit++) {
-          const isPixelSet = (byte & (1 << (7 - bit))) !== 0;
-          const color = isPixelSet ? 255 : 0;
+          if (byte & (1 << bit)) {
+            // Calculate x, y coordinates for the bit
+            const pixelX = xByte * 8 + bit;
+            const pixelY = y;
 
-          imageData.data[pixelIndex++] = color; // Red
-          imageData.data[pixelIndex++] = color; // Green
-          imageData.data[pixelIndex++] = color; // Blue
-          imageData.data[pixelIndex++] = 255; // Alpha (fully opaque)
+            // Draw the pixel at rotated coordinates
+            context.fillRect(pixelX, pixelY, 1, 1);
+          }
         }
       }
     }
-
-    ctx.putImageData(imageData, 0, 0);
   }
+
 
   drawUI() {
     const loop = () => {
-      this.drawToCanvas(this.instructions); // Update canvas
+      // this.drawToCanvas(this.instructions); // Update canvas
+      this.drawSpaceInvadersScreen(this.instructions);
       const currentInstruction = this.instructions[this.registers.PC];
       // UI updates
       document.getElementById(
@@ -202,25 +213,6 @@ class Emulator {
     requestAnimationFrame(loop); // Start the loop
   }
 
-  outOfBoundsOrMissingInstruction() {
-    if (this.registers.PC < 0 || this.registers.PC >= this.instructions.length) {
-      console.error("Program counter out of bounds:", this.registers.PC);
-      throw new Error("Execution stopped due to out of bounds error.");
-    }
-
-    if (this.missing) {
-      console.error("Execution stopped due to unimplemented instruction.");
-      console.log("Registers", this.registers);
-      //console log memory locations that are not 0
-      for (let i = 0; i < this.instructions.length; i++) {
-        if (i >= 0x2400 && i <= 0x3fff && this.instructions[i] !== 0) {
-          console.log("Memory location", i.toString(16), "Value", this.instructions[i]);
-        }
-      }
-      throw new Error("Execution stopped due to missing instruction error.");
-    }
-  }
-
   gameLoop() {
     let i = 0;
     let lastInterruptTime = Date.now();
@@ -233,25 +225,22 @@ class Emulator {
       const timeDifference = currentTime - lastInterruptTime;
 
       // Handle interrupts at the correct interval
-      // if (timeDifference >= interruptInterval) {
-      //   if (this.lastInterrupt == "d7") {
-      //     this.lastInterrupt = "cf";
-      //     this.executeInstruction("cf");
-      //   } else {
-      //     this.lastInterrupt = "d7";
-      //     this.executeInstruction("d7");
-      //   }
-      //   lastInterruptTime = currentTime;
-      // }
+      if (timeDifference >= interruptInterval) {
+        if (this.lastInterrupt == "d7") {
+          this.lastInterrupt = "cf";
+          this.executeInstruction("cf");
+        } else {
+          this.lastInterrupt = "d7";
+          this.executeInstruction("d7");
+        }
+        lastInterruptTime = currentTime;
+      }
 
       // Execute instructions according to the clock cycles
       let cyclesExecuted = 0;
       while (
         cyclesExecuted < cyclesToExecute
       ) {
-        // check if the program counter is out of bounds or if the instruction is missing and throw error if so
-        this.outOfBoundsOrMissingInstruction();
-
         this.executeInstruction(this.instructions[this.registers.PC]);
 
         cyclesExecuted += this.getInstructionCycles(
@@ -259,13 +248,7 @@ class Emulator {
         );
         i++;
         // kill the program after the first x number of instructions
-        if (i >= 100000) { // 37520
-          //console log memory locations that are not 0
-          // for (let i = 0; i < this.memory.length; i++) {
-          //   if (i >= 0x2400 && i <= 0x3fff && this.memory[i] !== 0) {
-          //     console.log("Memory location", i.toString(16), "Value", this.memory[i]);
-          //   }
-          // }
+        if (i >= 500000) { // 37520
           return;
         }
       }
