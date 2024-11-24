@@ -1,6 +1,5 @@
-import { instructions } from "./rom/combined_instructions.js";
+import { instructions } from "./instructionsTest.js";
 import { logger } from "./utils/logger.js";
-
 
 class Emulator {
   constructor() {
@@ -14,8 +13,8 @@ class Emulator {
       H: 0,
       L: 0,
       // 16-bit registers
-      SP: 0x3fff,
-      PC: 0,
+      SP: 0x00,
+      PC: 0x100,
       Flags: {
         Carry: this._flagManager.IsSet(this._flagManager.FlagType.Carry),
         Parity: this._flagManager.IsSet(this._flagManager.FlagType.Parity),
@@ -26,8 +25,6 @@ class Emulator {
         Sign: this._flagManager.IsSet(this._flagManager.FlagType.Sign),
       },
     };
-    // using this.missing just as a flag to stop the loop if there's a missing instruction
-    this.missing = false;
     // instructions, stack, and memory are all separate arrays but are all the same size (65536)
     this.instructions = instructions;
     this.interruptsEnabled = false;
@@ -151,139 +148,18 @@ class Emulator {
     return result;
   };
 
-  drawToCanvas(memory) {
-    // 0x2400 - 0x3fff is the video memory range
-    const VIDEO_MEMORY_START = 0x2400;
-    const VIDEO_MEMORY_END = 0x3fff;
-    const SCREEN_WIDTH = 224;
-    const SCREEN_HEIGHT = 256;
-
-    const canvas = document.getElementById("screen");
-    const ctx = canvas.getContext("2d");
-    const imageData = ctx.createImageData(SCREEN_WIDTH, SCREEN_HEIGHT);
-
-    let pixelIndex = 0;
-    for (let y = 0; y < SCREEN_HEIGHT; y++) {
-      for (let xByte = 0; xByte < SCREEN_WIDTH / 8; xByte++) {
-        const byte =
-          memory[VIDEO_MEMORY_START + y * (SCREEN_WIDTH / 8) + xByte] || 0;
-
-        for (let bit = 0; bit < 8; bit++) {
-          const isPixelSet = (byte & (1 << (7 - bit))) !== 0;
-          const color = isPixelSet ? 255 : 0;
-
-          imageData.data[pixelIndex++] = color; // Red
-          imageData.data[pixelIndex++] = color; // Green
-          imageData.data[pixelIndex++] = color; // Blue
-          imageData.data[pixelIndex++] = 255; // Alpha (fully opaque)
-        }
-      }
-    }
-
-    ctx.putImageData(imageData, 0, 0);
-  }
-
-  drawUI() {
-    const loop = () => {
-      this.drawToCanvas(this.instructions); // Update canvas
-      const currentInstruction = this.instructions[this.registers.PC];
-      // UI updates
-      document.getElementById(
-        "current-instruction"
-      ).innerText = `Current Instruction: ${currentInstruction}`;
-
-      document.getElementById(
-        "program-counter"
-      ).innerText = `Program Counter: ${this.registers.PC
-      } (hex PC: ${this.registers.PC.toString(16)})`;
-
-      requestAnimationFrame(loop); // Continue the loop
-    };
-    requestAnimationFrame(loop); // Start the loop
-  }
-
-  outOfBoundsOrMissingInstruction() {
-    if (this.registers.PC < 0 || this.registers.PC >= this.instructions.length) {
-      console.error("Program counter out of bounds:", this.registers.PC);
-      throw new Error("Execution stopped due to out of bounds error.");
-    }
-
-    if (this.missing) {
-      console.error("Execution stopped due to unimplemented instruction.");
-      console.log("Registers", this.registers);
-      //console log memory locations that are not 0
-      for (let i = 0; i < this.instructions.length; i++) {
-        if (i >= 0x2400 && i <= 0x3fff && this.instructions[i] !== 0) {
-          console.log("Memory location", i.toString(16), "Value", this.instructions[i]);
-        }
-      }
-      throw new Error("Execution stopped due to missing instruction error.");
-    }
-  }
-
   gameLoop() {
-    let i = 0;
-    let lastInterruptTime = Date.now();
-    const interruptInterval = 1000 / 60; // 1/60th of a second
-    const cyclesPerMillisecond = 2000; // 2MHz = 2000 cycles per millisecond
-    const cyclesToExecute = cyclesPerMillisecond; // Cycles per millisecond
+    //Skip DAA test
+    this.instructions[0x59c] = "0xc3"; //JMP
+    this.instructions[0x59d] = "0xc2";
+    this.instructions[0x59e] = "0x05";
 
     const loop = () => {
-      const currentTime = Date.now();
-      const timeDifference = currentTime - lastInterruptTime;
-
-      // Handle interrupts at the correct interval
-      // if (timeDifference >= interruptInterval) {
-      //   if (this.lastInterrupt == "d7") {
-      //     this.lastInterrupt = "cf";
-      //     this.executeInstruction("cf");
-      //   } else {
-      //     this.lastInterrupt = "d7";
-      //     this.executeInstruction("d7");
-      //   }
-      //   lastInterruptTime = currentTime;
-      // }
-
-      // Execute instructions according to the clock cycles
-      let cyclesExecuted = 0;
-      while (
-        cyclesExecuted < cyclesToExecute
-      ) {
-        // check if the program counter is out of bounds or if the instruction is missing and throw error if so
-        this.outOfBoundsOrMissingInstruction();
-
+      setInterval(() => {
         this.executeInstruction(this.instructions[this.registers.PC]);
-
-        cyclesExecuted += this.getInstructionCycles(
-          this.instructions[this.registers.PC]
-        );
-        i++;
-        // kill the program after the first x number of instructions
-        if (i >= 100000) { // 37520
-          //console log memory locations that are not 0
-          // for (let i = 0; i < this.memory.length; i++) {
-          //   if (i >= 0x2400 && i <= 0x3fff && this.memory[i] !== 0) {
-          //     console.log("Memory location", i.toString(16), "Value", this.memory[i]);
-          //   }
-          // }
-          return;
-        }
-      }
-      setTimeout(loop, 0); // Schedule the next execution immediately
+      }, 1);
     };
-    setTimeout(loop, 0); // Start the game loop immediately
-  }
-
-  // determine cycles for each instruction
-  getInstructionCycles(instruction) {
-    switch (instruction) {
-      case "cf":
-        return 4;
-      case "d7":
-        return 4;
-      default:
-        return 1; // Default cycle count (if unknown)
-    }
+    loop();
   }
 
   executeInstruction(instruction) {
@@ -1617,4 +1493,3 @@ class Emulator {
 
 const emulator = new Emulator();
 emulator.gameLoop();
-emulator.drawUI();
